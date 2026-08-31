@@ -1,0 +1,12 @@
+*.aux
+*.bcf
+*.idx
+*.log
+*.out
+*.xml
+*.run
+*.tex
+cifrado_cesar
+img/
+template/
+/template/
