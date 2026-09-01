@@ -1,9 +1,11 @@
 #include<stdio.h>
 #include<string.h>
 #include <ctype.h>
+#include <stdlib.h>
+
 int main(int argc, char *argv[]){
     if(argc != 3){
-        printf("""Uso: %s <key> <inputfile.txt>\n", argv[0]);
+        printf("Uso: %s <key> <inputfile.txt>\n", argv[0]);
         return 1;
     }
     const char *key = argv[1];
@@ -25,34 +27,74 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    int j = 0;
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    rewind(file);
+
+    char *encryptedText = (char *)malloc((size_t)fileSize + 1);
+    if (encryptedText == NULL) {
+        printf("No hay memoria suficiente para leer el archivo.\n");
+        fclose(file);
+        return 1;
+    }
+
+    int encryptIndex = 0;
+    int decryptIndex = 0;
+    int position = 0;
     int c;
 
-    while ((c = fgetc(file)) != EOF) {
-
-        // Use ctype.h to check if the character is a letter
+    while ((c = fgetc(file)) != EOF && position < (int)fileSize) {
         if (isalpha(c)) {
-            // toupper() ensures the key works regardless of its case
-            int shift = toupper(key[j % keyLength]) - 'A';
+            int shift = toupper(key[encryptIndex % keyLength]) - 'A';
 
-            // Encrypt while preserving the original case
             if (isupper(c)) {
                 c = ((c - 'A' + shift) % 26) + 'A';
             }
             else if (islower(c)) {
                 c = ((c - 'a' + shift) % 26) + 'a';
             }
-            // Advance the key index only when a letter is encrypted
-            j++;
-        }
-        // Print the character (encrypted if it was a letter, unchanged otherwise)
-        putchar(c);
-    }
 
-    // 5. Clean up
+            encryptIndex++;
+        }
+
+        encryptedText[position] = (char)c;
+        position++;
+    }
+    encryptedText[position] = '\0';
     fclose(file);
+
+    printf("Texto cifrado: ");
+    int i = 0;
+    while (encryptedText[i] != '\0') {
+        putchar(encryptedText[i]);
+        i++;
+    }
     printf("\n");
 
+    // 3) Descifrar la cadena almacenada, carácter por carácter
+    printf("Texto descifrado: ");
+    i = 0;
+    while (encryptedText[i] != '\0') {
+        c = encryptedText[i];
+
+        if (isalpha(c)) {
+            int shift = toupper(key[decryptIndex % keyLength]) - 'A';
+
+            if (isupper(c)) {
+                c = ((c - 'A' - shift + 26) % 26) + 'A';
+            }
+            else if (islower(c)) {
+                c = ((c - 'a' - shift + 26) % 26) + 'a';
+            }
+
+            decryptIndex++;
+        }
+
+        putchar(c);
+        i++;
+    }
+
+    printf("\n");
+    free(encryptedText);
     return 0;
 }
-
