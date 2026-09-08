@@ -1,116 +1,152 @@
-// Programa que implementa el cifrado de Disco de Alberti leyendo desde un archivo .txt
+// Cifrado de rueda de Alberti con una rueda externa fija y una interna claveada.
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
 #include <string.h>
 
+#define ALFABETO_TAM 26
+
+static void imprimir_uso(const char *programa) {
+    fprintf(stderr,
+            "Uso: %s <c|d> <entrada> <salida> <posicion> <periodo> <+|-> <clave>\n"
+            "  c: cifrar, d: descifrar\n"
+            "  posicion: giro inicial de 0 a 25\n"
+            "  periodo: letras entre giros, mayor que 0\n"
+            "  clave: permutacion de 26 letras ASCII sin repetir\n",
+            programa);
+}
+
+static int parsear_entero(const char *texto, long minimo, long maximo,
+                          long *resultado) {
+    char *fin;
+
+    errno = 0;
+    *resultado = strtol(texto, &fin, 10);
+    return errno == 0 && *texto != '\0' && *fin == '\0' &&
+           *resultado >= minimo && *resultado <= maximo;
+}
+
+static int validar_clave(const char *clave) {
+    int vistos[ALFABETO_TAM] = {0};
+
+    if (strlen(clave) != ALFABETO_TAM) {
+        return 0;
+    }
+    for (size_t i = 0; i < ALFABETO_TAM; i++) {
+        if (clave[i] < 'A' || clave[i] > 'Z' || vistos[clave[i] - 'A']) {
+            return 0;
+        }
+        vistos[clave[i] - 'A'] = 1;
+    }
+    return 1;
+}
+
+static char transformar(char caracter, int cifrar, const char *rueda_interna,
+                        int posicion) {
+    int es_mayuscula = caracter >= 'A' && caracter <= 'Z';
+    int es_minuscula = caracter >= 'a' && caracter <= 'z';
+    int indice;
+    char resultado;
+
+    if (!es_mayuscula && !es_minuscula) {
+        return caracter;
+    }
+
+    indice = es_mayuscula ? caracter - 'A' : caracter - 'a';
+    if (cifrar) {
+        resultado = rueda_interna[(indice + posicion) % ALFABETO_TAM];
+    } else {
+        int indice_interno = 0;
+        char mayuscula = es_mayuscula ? caracter : (char)(caracter - 'a' + 'A');
+
+        while (rueda_interna[indice_interno] != mayuscula) {
+            indice_interno++;
+        }
+        resultado = (char)('A' + (indice_interno - posicion + ALFABETO_TAM) %
+                           ALFABETO_TAM);
+    }
+    return es_mayuscula ? resultado : (char)(resultado - 'A' + 'a');
+}
+
 int main(int argc, char *argv[]) {
-    // 1. Verificar los argumentos de la terminal
-    if (argc != 4) {
-        printf("Uso: %s <archivo_entrada.txt> <posicion_inicial> <periodo>\n", argv[0]);
-        return 1;
-    }
-
-    const char *inputfile = argv[1];
-    int desplazamiento_inicial = atoi(argv[2]);
-    int periodo = atoi(argv[3]);
-
-    if (desplazamiento_inicial < 0 || desplazamiento_inicial > 25) {
-        printf("Error: La posicion inicial debe estar entre 0 y 25.\n");
-        return 1;
-    }
-
-    if (periodo < 1) {
-        printf("Error: El periodo debe ser un numero mayor a 0.\n");
-        return 1;
-    }
-
-    // 2. Abrir el archivo de texto
-    FILE *file = fopen(inputfile, "r");
-    if (file == NULL) {
-        printf("No se pudo abrir el archivo %s\n", inputfile);
-        return 1;
-    }
-
-    // 3. Obtener el tamaño del archivo para reservar memoria dinámica
-    fseek(file, 0, SEEK_END);
-    long fileSize = ftell(file);
-    rewind(file);
-
-    if (fileSize == 0) {
-        printf("El archivo esta vacio.\n");
-        fclose(file);
-        return 1;
-    }
-
-    // Reservar memoria para los arreglos de texto cifrado y descifrado
-    char *texto = (char *)malloc((size_t)fileSize + 1);
-    char *descifrado = (char *)malloc((size_t)fileSize + 1);
-    
-    if (texto == NULL || descifrado == NULL) {
-        printf("No hay memoria suficiente para leer el archivo.\n");
-        fclose(file);
-        if (texto) free(texto);
-        if (descifrado) free(descifrado);
-        return 1;
-    }
-
-    // Leer el archivo completo y cerrar
-    size_t leidos = fread(texto, 1, fileSize, file);
-    texto[leidos] = '\0';
-    fclose(file);
-
-    int desplazamiento_actual = desplazamiento_inicial;
+    const char *archivo_entrada;
+    const char *archivo_salida;
+    const char *clave;
+    long posicion_inicial;
+    long periodo;
     int contador_letras = 0;
+    int posicion_actual;
+    FILE *entrada;
+    FILE *salida;
+    int caracter;
 
-    // 4. Proceso de cifrado
-    for (int i = 0; texto[i] != '\0'; i++) {
-        if (isalpha(texto[i])) {
-            if (isupper(texto[i])) {
-                texto[i] = (char)('A' + (texto[i] - 'A' + desplazamiento_actual) % 26);
-            } else if (islower(texto[i])) {
-                texto[i] = (char)('a' + (texto[i] - 'a' + desplazamiento_actual) % 26);
-            }
+    if (argc != 8 || (strcmp(argv[1], "c") != 0 && strcmp(argv[1], "d") != 0) ||
+        (strcmp(argv[6], "+") != 0 && strcmp(argv[6], "-") != 0)) {
+        imprimir_uso(argv[0]);
+        return EXIT_FAILURE;
+    }
+    if (!parsear_entero(argv[4], 0, 25, &posicion_inicial)) {
+        fprintf(stderr, "Error: la posicion debe estar entre 0 y 25.\n");
+        return EXIT_FAILURE;
+    }
+    if (!parsear_entero(argv[5], 1, 2147483647, &periodo)) {
+        fprintf(stderr, "Error: el periodo debe ser un entero mayor que 0.\n");
+        return EXIT_FAILURE;
+    }
+    if (!validar_clave(argv[7])) {
+        fprintf(stderr, "Error: la clave debe ser una permutacion de A-Z sin repetir.\n");
+        return EXIT_FAILURE;
+    }
 
+    archivo_entrada = argv[2];
+    archivo_salida = argv[3];
+    clave = argv[7];
+    if (strcmp(archivo_entrada, archivo_salida) == 0) {
+        fprintf(stderr, "Error: entrada y salida deben ser archivos distintos.\n");
+        return EXIT_FAILURE;
+    }
+
+    entrada = fopen(archivo_entrada, "rb");
+    if (entrada == NULL) {
+        fprintf(stderr, "Error: no se pudo abrir '%s'.\n", archivo_entrada);
+        return EXIT_FAILURE;
+    }
+    salida = fopen(archivo_salida, "wb");
+    if (salida == NULL) {
+        fprintf(stderr, "Error: no se pudo crear '%s'.\n", archivo_salida);
+        fclose(entrada);
+        return EXIT_FAILURE;
+    }
+
+    posicion_actual = (int)posicion_inicial;
+    while ((caracter = fgetc(entrada)) != EOF) {
+        int es_letra = (caracter >= 'A' && caracter <= 'Z') ||
+                       (caracter >= 'a' && caracter <= 'z');
+        char transformado = transformar((char)caracter, argv[1][0] == 'c',
+                                        clave, posicion_actual);
+
+        if (fputc((unsigned char)transformado, salida) == EOF) {
+            fprintf(stderr, "Error al escribir '%s'.\n", archivo_salida);
+            fclose(entrada);
+            fclose(salida);
+            return EXIT_FAILURE;
+        }
+        if (es_letra) {
             contador_letras++;
             if (contador_letras % periodo == 0) {
-                desplazamiento_actual = (desplazamiento_actual + 1) % 26;
+                int giro = argv[6][0] == '+' ? 1 : -1;
+                posicion_actual = (posicion_actual + giro + ALFABETO_TAM) %
+                                  ALFABETO_TAM;
             }
         }
     }
 
-    // Copiar el texto cifrado para procesar el descifrado
-    for (int i = 0; texto[i] != '\0'; i++) {
-        descifrado[i] = texto[i];
-        descifrado[i + 1] = '\0';
+    int error_lectura = ferror(entrada);
+    int error_entrada = fclose(entrada) != 0;
+    int error_salida = fclose(salida) != 0;
+    if (error_lectura || error_entrada || error_salida) {
+        fprintf(stderr, "Error al cerrar los archivos.\n");
+        return EXIT_FAILURE;
     }
-
-    // 5. Proceso de descifrado
-    desplazamiento_actual = desplazamiento_inicial;
-    contador_letras = 0;
-
-    for (int i = 0; descifrado[i] != '\0'; i++) {
-        if (isalpha(descifrado[i])) {
-            if (isupper(descifrado[i])) {
-                descifrado[i] = (char)('A' + (descifrado[i] - 'A' - desplazamiento_actual + 26) % 26);
-            } else if (islower(descifrado[i])) {
-                descifrado[i] = (char)('a' + (descifrado[i] - 'a' - desplazamiento_actual + 26) % 26);
-            }
-
-            contador_letras++;
-            if (contador_letras % periodo == 0) {
-                desplazamiento_actual = (desplazamiento_actual + 1) % 26;
-            }
-        }
-    }
-
-    // Mostrar los resultados
-    printf("--- MENSAJE CIFRADO ---\n%s\n", texto);
-    printf("\n--- MENSAJE DESCIFRADO ---\n%s\n", descifrado);
-
-    // Liberar la memoria reservada
-    free(texto);
-    free(descifrado);
-
-    return 0;
+    return EXIT_SUCCESS;
 }
