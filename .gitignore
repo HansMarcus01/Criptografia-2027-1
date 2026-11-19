@@ -11,5 +11,6 @@ img/
 template/
 /template/
 *.txt
+llaves*.env
 #Exclude executables
 *.exe
